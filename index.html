@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>tty-movie · playimdb</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000000;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Courier New', 'Fira Code', monospace;
+            padding: 1rem;
+        }
+
+        /* terminal container – minimal */
+        .terminal {
+            width: 100%;
+            max-width: 700px;
+            background: #000000;
+            border: 1px solid #0f0;
+            box-shadow: 0 0 12px rgba(0, 255, 0, 0.2);
+            padding: 1.5rem;
+            border-radius: 0px;   /* sharp ascii feel */
+        }
+
+        /* blink cursor effect for input (block style) */
+        @keyframes blink {
+            0%, 49% { border-right-color: #0f0; }
+            50%, 100% { border-right-color: transparent; }
+        }
+
+        .search-area {
+            position: relative;
+            width: 100%;
+        }
+
+        .input-line {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 1rem;
+            border-bottom: 1px solid #0f0;
+            padding-bottom: 0.8rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .prompt {
+            color: #0f0;
+            font-size: 1.2rem;
+            font-weight: bold;
+            letter-spacing: 1px;
+            user-select: none;
+        }
+
+        .prompt::before {
+            content: ">";
+            margin-right: 0.4rem;
+        }
+
+        #movieInput {
+            flex: 1;
+            background: transparent;
+            border: none;
+            font-family: 'Courier New', monospace;
+            font-size: 1.2rem;
+            color: #0f0;
+            outline: none;
+            padding: 0.3rem 0;
+            caret-color: #0f0;
+            /* block cursor simulation via text-shadow? we use standard caret but terminal-like */
+        }
+
+        #movieInput:focus {
+            animation: blink 1s step-end infinite;
+            border-right: 2px solid #0f0;
+        }
+
+        /* old‑style submit button */
+        #submitBtn {
+            background: transparent;
+            border: 1px solid #0f0;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            font-size: 1rem;
+            padding: 0.4rem 1rem;
+            cursor: pointer;
+            transition: all 0.1s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        #submitBtn:hover {
+            background: #0f0;
+            color: #000;
+            box-shadow: 0 0 6px #0f0;
+            border-color: #0f0;
+        }
+
+        /* suggestions dropdown – retro terminal style */
+        .suggestions {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            right: 0;
+            background: #000000;
+            border: 1px solid #0f0;
+            max-height: 320px;
+            overflow-y: auto;
+            z-index: 100;
+            display: none;
+            box-shadow: 0 4px 12px rgba(0, 255, 0, 0.1);
+        }
+
+        .suggestion {
+            padding: 0.6rem 1rem;
+            color: #0f0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.95rem;
+            border-bottom: 1px solid #1a3a1a;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: background 0.08s linear;
+        }
+
+        .suggestion:last-child {
+            border-bottom: none;
+        }
+
+        .suggestion:hover, .suggestion.active {
+            background: #0f0;
+            color: #000;
+        }
+
+        .suggestion-year {
+            color: #2e8b57;
+            font-size: 0.8rem;
+        }
+
+        .suggestion:hover .suggestion-year {
+            color: #000;
+        }
+
+        /* custom scrollbar – green */
+        .suggestions::-webkit-scrollbar {
+            width: 6px;
+        }
+        .suggestions::-webkit-scrollbar-track {
+            background: #000;
+        }
+        .suggestions::-webkit-scrollbar-thumb {
+            background: #0f0;
+            border-radius: 0px;
+        }
+
+        /* tiny loading indicator */
+        .loading-dots {
+            color: #0f0;
+            text-align: center;
+            padding: 0.8rem;
+            font-family: monospace;
+            letter-spacing: 2px;
+        }
+
+        /* no extra text – completely minimal */
+        .no-extra {
+            /* nothing */
+        }
+
+        /* fallback message (hidden unless error, but we keep minimal) */
+        .temp-msg {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #000;
+            border: 1px solid #0f0;
+            color: #0f0;
+            padding: 6px 12px;
+            font-family: monospace;
+            font-size: 0.75rem;
+            z-index: 1000;
+            white-space: nowrap;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+<div class="terminal">
+    <div class="search-area">
+        <div class="input-line">
+            <span class="prompt"></span>
+            <input type="text" id="movieInput" placeholder="movie title..." autocomplete="off" spellcheck="false">
+            <button id="submitBtn">OPEN</button>
+        </div>
+        <div id="suggestionsList" class="suggestions"></div>
+    </div>
+</div>
+
+<script>
+    // ========================
+    // TERMINAL MOVIE SEARCH – ASCII GREEN, NO EXTRA TEXT
+    // ========================
+    const API_URL = 'https://imdb.iamidiotareyoutoo.com/search';
+    const BASE_URL = 'https://m.playimdb.com/title/';   // exactly: playimdb (no dot between play & imdb)
+
+    // DOM
+    const inputEl = document.getElementById('movieInput');
+    const submitBtn = document.getElementById('submitBtn');
+    const suggestionsDiv = document.getElementById('suggestionsList');
+
+    let currentSuggestions = [];
+    let activeIndex = -1;
+    let debounceTimer = null;
+
+    // tiny temporary message (only if needed, but still minimal)
+    let msgTimeout;
+    function showTerminalMessage(text, isError = false) {
+        let oldMsg = document.getElementById('termToast');
+        if (oldMsg) oldMsg.remove();
+        const div = document.createElement('div');
+        div.id = 'termToast';
+        div.className = 'temp-msg';
+        div.style.borderColor = isError ? '#f33' : '#0f0';
+        div.style.color = isError ? '#f66' : '#0f0';
+        div.innerText = isError ? `! ${text}` : `> ${text}`;
+        document.body.appendChild(div);
+        if (msgTimeout) clearTimeout(msgTimeout);
+        msgTimeout = setTimeout(() => {
+            if (div) div.remove();
+        }, 2200);
+    }
+
+    // open movie page: m.playimdb.com/title/ID/
+    function openMoviePage(imdbId, movieTitle) {
+        if (imdbId && imdbId.startsWith('tt')) {
+            const url = `${BASE_URL}${imdbId}/`;
+            window.open(url, '_blank');
+            showTerminalMessage(`opened: ${movieTitle}`, false);
+        } else if (movieTitle) {
+            const fallbackUrl = `https://m.playimdb.com/find?q=${encodeURIComponent(movieTitle)}`;
+            window.open(fallbackUrl, '_blank');
+            showTerminalMessage(`fallback search: ${movieTitle}`, true);
+        }
+    }
+
+    // fetch from IMDbOT (free, no key)
+    async function fetchMovies(query) {
+        if (!query || query.trim().length < 2) return [];
+        try {
+            const url = `${API_URL}?q=${encodeURIComponent(query)}`;
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 4000);
+            const res = await fetch(url, { signal: controller.signal });
+            clearTimeout(timeoutId);
+            if (!res.ok) return [];
+            const data = await res.json();
+            if (data && data.ok && Array.isArray(data.description)) {
+                return data.description
+                    .filter(item => item && item["#IMDB_ID"])
+                    .map(item => ({
+                        id: item["#IMDB_ID"],
+                        title: item["#TITLE"] || "Unknown",
+                        year: item["#YEAR"] || "",
+                    }))
+                    .slice(0, 8);
+            }
+            return [];
+        } catch (err) {
+            console.warn(err);
+            return [];
+        }
+    }
+
+    // render suggestions with retro style
+    function renderSuggestions(movies) {
+        suggestionsDiv.innerHTML = '';
+        if (!movies.length) {
+            suggestionsDiv.style.display = 'none';
+            currentSuggestions = [];
+            return;
+        }
+        currentSuggestions = movies;
+        movies.forEach((movie, idx) => {
+            const div = document.createElement('div');
+            div.className = 'suggestion';
+            if (idx === activeIndex) div.classList.add('active');
+            div.innerHTML = `
+                <span>${escapeHtml(movie.title)}</span>
+                ${movie.year ? `<span class="suggestion-year">${movie.year}</span>` : ''}
+            `;
+            div.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openMoviePage(movie.id, movie.title);
+                inputEl.value = movie.title;
+                suggestionsDiv.style.display = 'none';
+                activeIndex = -1;
+                inputEl.focus();
+            });
+            suggestionsDiv.appendChild(div);
+        });
+        suggestionsDiv.style.display = 'block';
+    }
+
+    function escapeHtml(str) {
+        return str.replace(/[&<>]/g, function(m) {
+            if (m === '&') return '&amp;';
+            if (m === '<') return '&lt;';
+            if (m === '>') return '&gt;';
+            return m;
+        });
+    }
+
+    // live search (debounced)
+    async function performSearch() {
+        const query = inputEl.value.trim();
+        if (query.length < 2) {
+            suggestionsDiv.style.display = 'none';
+            return;
+        }
+        // show loading inside dropdown (terminal style)
+        suggestionsDiv.innerHTML = `<div class="loading-dots">[ searching ]</div>`;
+        suggestionsDiv.style.display = 'block';
+        const movies = await fetchMovies(query);
+        renderSuggestions(movies);
+    }
+
+    function debouncedSearch() {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(performSearch, 320);
+    }
+
+    // keyboard navigation: arrows, enter, escape
+    function handleKeydown(e) {
+        const items = document.querySelectorAll('.suggestion');
+        const total = items.length;
+        if (total === 0) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleSubmit();
+            }
+            return;
+        }
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            activeIndex = (activeIndex + 1) % total;
+            updateActive(items);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            activeIndex = (activeIndex - 1 + total) % total;
+            updateActive(items);
+        } else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (activeIndex >= 0 && activeIndex < total) {
+                const selected = currentSuggestions[activeIndex];
+                if (selected) {
+                    openMoviePage(selected.id, selected.title);
+                    inputEl.value = selected.title;
+                    suggestionsDiv.style.display = 'none';
+                    activeIndex = -1;
+                }
+            } else {
+                handleSubmit();
+            }
+        } else if (e.key === 'Escape') {
+            suggestionsDiv.style.display = 'none';
+            activeIndex = -1;
+            inputEl.blur();
+        }
+    }
+
+    function updateActive(items) {
+        items.forEach((item, idx) => {
+            if (idx === activeIndex) item.classList.add('active');
+            else item.classList.remove('active');
+        });
+        if (activeIndex >= 0 && items[activeIndex]) {
+            items[activeIndex].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+    }
+
+    // submit action: open movie (exact match or first result)
+    async function handleSubmit() {
+        let query = inputEl.value.trim();
+        if (!query) return;
+
+        // if there's an exact title match in current suggestions, use it
+        const exactMatch = currentSuggestions.find(s => s.title.toLowerCase() === query.toLowerCase());
+        if (exactMatch) {
+            openMoviePage(exactMatch.id, exactMatch.title);
+            suggestionsDiv.style.display = 'none';
+            activeIndex = -1;
+            return;
+        }
+
+        // otherwise fetch & open first result
+        const originalBtnText = submitBtn.innerHTML;
+        submitBtn.innerHTML = '[ fetch ]';
+        submitBtn.disabled = true;
+        const movies = await fetchMovies(query);
+        submitBtn.innerHTML = originalBtnText;
+        submitBtn.disabled = false;
+
+        if (movies && movies.length > 0) {
+            const best = movies[0];
+            openMoviePage(best.id, best.title);
+            inputEl.value = best.title;
+        } else {
+            // fallback to basic search on m.playimdb.com
+            window.open(`https://m.playimdb.com/find?q=${encodeURIComponent(query)}`, '_blank');
+            showTerminalMessage(`no exact id → search: ${query}`, true);
+        }
+        suggestionsDiv.style.display = 'none';
+        activeIndex = -1;
+    }
+
+    // close suggestions on outside click
+    document.addEventListener('click', (e) => {
+        const wrapper = document.querySelector('.search-area');
+        if (wrapper && !wrapper.contains(e.target)) {
+            suggestionsDiv.style.display = 'none';
+            activeIndex = -1;
+        }
+    });
+
+    // focus styles: ensure cursor block style
+    inputEl.addEventListener('focus', () => {
+        inputEl.style.borderRight = '2px solid #0f0';
+    });
+    inputEl.addEventListener('blur', () => {
+        inputEl.style.borderRight = 'none';
+    });
+
+    // event binding
+    inputEl.addEventListener('input', debouncedSearch);
+    inputEl.addEventListener('keydown', handleKeydown);
+    submitBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        handleSubmit();
+    });
+
+    // optional small startup message (still minimal, will disappear quickly)
+    setTimeout(() => {
+        showTerminalMessage('type movie → suggestions ▲ ▼ ENTER', false);
+    }, 300);
+</script>
+</body>
+</html>
