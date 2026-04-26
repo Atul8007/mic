@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live IMDb Search · Real-time Movie Finder</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: system-ui, 'Segoe UI', 'Inter', sans-serif;
+    }
+
+    body {
+      background: linear-gradient(145deg, #0b1120 0%, #111827 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 1.5rem;
+    }
+
+    .card {
+      max-width: 800px;
+      width: 100%;
+      background: rgba(18, 25, 45, 0.85);
+      backdrop-filter: blur(8px);
+      border-radius: 2rem;
+      box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.4);
+      padding: 2rem;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    h1 {
+      font-size: 2rem;
+      background: linear-gradient(120deg, #f0f9ff, #c084fc, #60a5fa);
+      background-clip: text;
+      -webkit-background-clip: text;
+      color: transparent;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .live-badge {
+      background: #10b981;
+      color: white;
+      font-size: 0.7rem;
+      padding: 0.2rem 0.6rem;
+      border-radius: 20px;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    .subhead {
+      color: #94a3b8;
+      margin: 0.25rem 0 1.5rem 0;
+      border-left: 3px solid #3b82f6;
+      padding-left: 0.75rem;
+    }
+
+    .search-area { position: relative; margin: 1.5rem 0 1rem; }
+    
+    .search-bar {
+      display: flex;
+      gap: 0.8rem;
+      align-items: center;
+      background: #0f172a;
+      border-radius: 80px;
+      padding: 0.2rem 0.2rem 0.2rem 1.25rem;
+      border: 1px solid #2d3a5e;
+      transition: all 0.2s;
+    }
+    
+    .search-bar:focus-within {
+      border-color: #8b5cf6;
+      box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.2);
+    }
+    
+    #movieInput {
+      flex: 1;
+      background: transparent;
+      border: none;
+      padding: 0.85rem 0;
+      font-size: 1rem;
+      color: #f1f5f9;
+      outline: none;
+    }
+    
+    #movieInput::placeholder {
+      color: #475569;
+    }
+    
+    #submitBtn {
+      background: linear-gradient(95deg, #3b82f6, #8b5cf6);
+      border: none;
+      border-radius: 60px;
+      padding: 0.6rem 1.5rem;
+      font-weight: 600;
+      color: white;
+      cursor: pointer;
+      transition: transform 0.1s;
+    }
+    
+    #submitBtn:hover { transform: scale(0.97); }
+    
+    .suggestions {
+      position: absolute;
+      top: calc(100% + 10px);
+      left: 0;
+      right: 0;
+      background: #0f172aee;
+      backdrop-filter: blur(12px);
+      border-radius: 1rem;
+      border: 1px solid #334155;
+      max-height: 400px;
+      overflow-y: auto;
+      z-index: 200;
+      display: none;
+      box-shadow: 0 20px 30px -10px black;
+    }
+    
+    .suggestion {
+      padding: 0.8rem 1.2rem;
+      color: #e2e8f0;
+      cursor: pointer;
+      border-bottom: 1px solid #1e293b;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      transition: background 0.08s linear;
+    }
+    
+    .suggestion:hover, .suggestion.active {
+      background: #2d3a5e;
+      color: white;
+    }
+    
+    .suggestion-year {
+      color: #60a5fa;
+      font-size: 0.75rem;
+      margin-left: auto;
+    }
+    
+    .loading-spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #475569;
+      border-top-color: #8b5cf6;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      margin-left: 10px;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    
+    .info-panel {
+      margin-top: 1.5rem;
+      background: #0f172a60;
+      border-radius: 1rem;
+      padding: 1rem;
+    }
+    
+    .stats {
+      display: flex;
+      justify-content: space-between;
+      color: #9ca3af;
+      font-size: 0.8rem;
+      margin-top: 0.5rem;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    
+    .feedback {
+      text-align: center;
+      margin-top: 0.8rem;
+      font-size: 0.8rem;
+      min-height: 2rem;
+    }
+    
+    .error-message {
+      color: #f87171;
+      text-align: center;
+      padding: 1rem;
+    }
+    
+    .suggestion-poster {
+      width: 40px;
+      height: 60px;
+      background: #1e293b;
+      border-radius: 4px;
+      object-fit: cover;
+    }
+    
+    .suggestion-info {
+      flex: 1;
+    }
+    
+    .suggestion-title {
+      font-weight: 500;
+    }
+    
+    @media (max-width: 550px) {
+      .card { padding: 1.5rem; }
+      .suggestion-poster { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap;">
+    <div>
+      <h1>
+        🎬 IMDb Live
+        <span class="live-badge">LIVE</span>
+      </h1>
+      <div class="subhead">Real-time fetch from IMDb · No local database</div>
+    </div>
+  </div>
+
+  <div class="search-area">
+    <div class="search-bar">
+      <span>🔍</span>
+      <input type="text" id="movieInput" placeholder="Search any movie... (e.g., Dune, Oppenheimer, Barbie)" autocomplete="off">
+      <button id="submitBtn">▶ Open IMDb</button>
+    </div>
+    <div id="suggestionsBox" class="suggestions"></div>
+  </div>
+
+  <div class="info-panel">
+    <div style="display: flex; gap: 1rem; flex-wrap: wrap; justify-content: space-between;">
+      <div>🌐 <strong>Live from IMDb</strong> — real-time suggestions</div>
+      <div>⌨️ ↑↓ Enter → navigate</div>
+      <div>⚡ <span id="resultCount">0</span> results found</div>
+    </div>
+    <div class="stats">
+      <span>🔍 Type any movie name → fetches from IMDb API</span>
+      <span>🎯 Click any result → opens official IMDb page</span>
+    </div>
+  </div>
+  <div id="feedbackMsg" class="feedback"></div>
+</div>
+
+<script>
+  // DOM elements
+  const inputEl = document.getElementById('movieInput');
+  const submitBtn = document.getElementById('submitBtn');
+  const suggestionsDiv = document.getElementById('suggestionsBox');
+  const feedbackDiv = document.getElementById('feedbackMsg');
+  const resultCountSpan = document.getElementById('resultCount');
+  
+  let activeIndex = -1;
+  let currentSuggestions = [];
+  let debounceTimer = null;
+  let isFetching = false;
+  
+  // Helper: show message
+  let msgTimeout;
+  function showMessage(text, isError = false, isWarning = false) {
+    if (msgTimeout) clearTimeout(msgTimeout);
+    if (isError) {
+      feedbackDiv.innerHTML = `⚠️ ${text}`;
+      feedbackDiv.style.color = '#f87171';
+    } else if (isWarning) {
+      feedbackDiv.innerHTML = `⚡ ${text}`;
+      feedbackDiv.style.color = '#fbbf24';
+    } else {
+      feedbackDiv.innerHTML = `✨ ${text}`;
+      feedbackDiv.style.color = '#86efac';
+    }
+    msgTimeout = setTimeout(() => {
+      if (feedbackDiv) feedbackDiv.innerHTML = '';
+    }, 3000);
+  }
+  
+  // Escape HTML for safety
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>]/g, function(m) {
+      if (m === '&') return '&amp;';
+      if (m === '<') return '&lt;';
+      if (m === '>') return '&gt;';
+      return m;
+    });
+  }
+  
+  // Fetch suggestions from IMDb search API (using IMDb's public suggest endpoint)
+  async function fetchIMDbSuggestions(query) {
+    if (!query || query.trim().length < 2) {
+      return [];
+    }
+    
+    isFetching = true;
+    
+    try {
+      // Using IMDb's JSON suggest API (unofficial but reliable and free)
+      const url = `https://v2.sg.media-imdb.com/suggestion/${query[0]}/${encodeURIComponent(query)}.json`;
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json',
+        }
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Extract movie results from IMDb suggestion API
+      if (data && data.d && Array.isArray(data.d)) {
+        const movies = data.d
+          .filter(item => item.qid === 'movie' || item.qid === 'short' || item.q === 'Movie')
+          .map(item => ({
+            id: item.id,
+            title: item.l,
+            year: item.y || '',
+            image: item.i ? item.i.imageUrl : null,
+            description: item.s || ''
+          }))
+          .slice(0, 10); // Limit to 10 results
+        
+        return movies;
+      }
+      
+      return [];
+      
+    } catch (error) {
+      console.error('IMDb fetch error:', error);
+      if (error.name === 'AbortError') {
+        showMessage('Request timeout, please try again', true);
+      }
+      return [];
+    } finally {
+      isFetching = false;
+    }
+  }
+  
+  // Alternative: Use IMDb search redirect as fallback
+  function openIMDbPage(movieTitle, imdbId = null) {
+    if (!movieTitle && !imdbId) {
+      showMessage("Please select a movie first", true);
+      return false;
+    }
+    
+    let imdbUrl;
+    if (imdbId) {
+      // Direct IMDb page if we have the ID
+      imdbUrl = `https://www.imdb.com/title/${imdbId}/`;
+    } else {
+      // Search IMDb
+      imdbUrl = `https://www.imdb.com/find?q=${encodeURIComponent(movieTitle)}&s=tt&ttype=ft`;
+    }
+    
+    window.open(imdbUrl, '_blank', 'noopener,noreferrer');
+    showMessage(`🎬 Opening IMDb for "${movieTitle}"`);
+    return true;
+  }
+  
+  // Render suggestions in dropdown
+  function renderSuggestions(movies) {
+    suggestionsDiv.innerHTML = '';
+    
+    if (!movies || movies.length === 0) {
+      if (inputEl.value.trim().length >= 2 && !isFetching) {
+        suggestionsDiv.innerHTML = `<div class="error-message">🎞️ No movies found. Try different spelling.</div>`;
+        suggestionsDiv.style.display = 'block';
+        resultCountSpan.textContent = '0';
+      } else if (isFetching) {
+        suggestionsDiv.innerHTML = `<div class="error-message"><div class="loading-spinner"></div> Searching IMDb...</div>`;
+        suggestionsDiv.style.display = 'block';
+      } else {
+        suggestionsDiv.style.display = 'none';
+      }
+      activeIndex = -1;
+      currentSuggestions = [];
+      return;
+    }
+    
+    resultCountSpan.textContent = movies.length;
+    currentSuggestions = movies;
+    
+    movies.forEach((movie, idx) => {
+      const suggestionDiv = document.createElement('div');
+      suggestionDiv.className = 'suggestion';
+      if (idx === activeIndex) suggestionDiv.classList.add('active');
+      
+      // Create content
+      const posterHtml = movie.image 
+        ? `<img src="${movie.image}" class="suggestion-poster" alt="${escapeHtml(movie.title)}" onerror="this.style.display='none'">`
+        : '<div class="suggestion-poster" style="display: flex; align-items: center; justify-content: center;">🎬</div>';
+      
+      suggestionDiv.innerHTML = `
+        ${posterHtml}
+        <div class="suggestion-info">
+          <div class="suggestion-title">${escapeHtml(movie.title)}</div>
+          <div style="font-size: 0.7rem; color: #94a3b8;">${movie.year ? movie.year : 'Year unknown'}</div>
+        </div>
+        <div class="suggestion-year">📽️ Click to open</div>
+      `;
+      
+      suggestionDiv.addEventListener('click', () => {
+        inputEl.value = movie.title;
+        openIMDbPage(movie.title, movie.id);
+        suggestionsDiv.style.display = 'none';
+        activeIndex = -1;
+      });
+      
+      suggestionsDiv.appendChild(suggestionDiv);
+    });
+    
+    suggestionsDiv.style.display = 'block';
+  }
+  
+  // Debounced search function (real-time)
+  async function performSearch() {
+    const query = inputEl.value.trim();
+    
+    if (query.length < 2) {
+      suggestionsDiv.style.display = 'none';
+      suggestionsDiv.innerHTML = '';
+      resultCountSpan.textContent = '0';
+      return;
+    }
+    
+    // Show loading state
+    suggestionsDiv.innerHTML = `<div class="error-message"><div class="loading-spinner"></div> Fetching from IMDb...</div>`;
+    suggestionsDiv.style.display = 'block';
+    
+    const movies = await fetchIMDbSuggestions(query);
+    renderSuggestions(movies);
+  }
+  
+  // Debounce function to avoid too many API calls
+  function debouncedSearch() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      performSearch();
+    }, 400); // Wait 400ms after user stops typing
+  }
+  
+  // Handle keyboard navigation
+  function handleKeyboardNavigation(e) {
+    const items = document.querySelectorAll('.suggestion');
+    const total = items.length;
+    
+    if (total === 0) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleSubmit();
+      }
+      return;
+    }
+    
+    switch(e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        activeIndex = (activeIndex + 1) % total;
+        updateActiveHighlight(items);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        activeIndex = (activeIndex - 1 + total) % total;
+        updateActiveHighlight(items);
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (activeIndex >= 0 && activeIndex < total) {
+          const selectedMovie = currentSuggestions[activeIndex];
+          if (selectedMovie) {
+            inputEl.value = selectedMovie.title;
+            openIMDbPage(selectedMovie.title, selectedMovie.id);
+            suggestionsDiv.style.display = 'none';
+            activeIndex = -1;
+          }
+        } else {
+          handleSubmit();
+        }
+        break;
+      case 'Escape':
+        suggestionsDiv.style.display = 'none';
+        activeIndex = -1;
+        break;
+    }
+  }
+  
+  function updateActiveHighlight(items) {
+    items.forEach((item, idx) => {
+      if (idx === activeIndex) {
+        item.classList.add('active');
+        item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      } else {
+        item.classList.remove('active');
+      }
+    });
+  }
+  
+  // Handle submit button click
+  async function handleSubmit() {
+    const query = inputEl.value.trim();
+    
+    if (!query) {
+      showMessage("Please type a movie name", true);
+      return;
+    }
+    
+    // First try to find exact match from current suggestions
+    if (currentSuggestions.length > 0) {
+      const exactMatch = currentSuggestions.find(m => 
+        m.title.toLowerCase() === query.toLowerCase()
+      );
+      if (exactMatch) {
+        openIMDbPage(exactMatch.title, exactMatch.id);
+        suggestionsDiv.style.display = 'none';
+        return;
+      }
+    }
+    
+    // If no exact match, search and open first result or just search IMDb
+    showMessage(`🔍 Searching IMDb for "${query}"...`, false);
+    
+    // Try to fetch and open first result
+    const movies = await fetchIMDbSuggestions(query);
+    if (movies && movies.length > 0) {
+      openIMDbPage(movies[0].title, movies[0].id);
+      suggestionsDiv.style.display = 'none';
+    } else {
+      // If no results, just open IMDb search page
+      openIMDbPage(query);
+    }
+  }
+  
+  // Close suggestions when clicking outside
+  function handleOutsideClick(e) {
+    const searchArea = document.querySelector('.search-area');
+    if (searchArea && !searchArea.contains(e.target)) {
+      suggestionsDiv.style.display = 'none';
+      activeIndex = -1;
+    }
+  }
+  
+  // Initialize event listeners
+  function init() {
+    inputEl.addEventListener('input', () => {
+      activeIndex = -1;
+      debouncedSearch();
+    });
+    
+    inputEl.addEventListener('keydown', handleKeyboardNavigation);
+    inputEl.addEventListener('focus', () => {
+      if (inputEl.value.trim().length >= 2) {
+        performSearch();
+      }
+    });
+    
+    submitBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      handleSubmit();
+    });
+    
+    document.addEventListener('click', handleOutsideClick);
+    suggestionsDiv.addEventListener('click', (e) => e.stopPropagation());
+    
+    showMessage("🌐 Ready! Type any movie name → live results from IMDb", false);
+  }
+  
+  // Start the app
+  init();
+</script>
+</body>
+</html>
